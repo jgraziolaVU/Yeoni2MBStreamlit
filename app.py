@@ -102,14 +102,24 @@ class MossbauerInterpreter:
         self.api_key = api_key
         self.model_name = model_name
 
-    def generate_summary(self, velocity: np.ndarray, absorption: np.ndarray) -> str:
+    def generate_summary(self, velocity: np.ndarray, absorption: np.ndarray, fit_model: str, n_sites: int) -> str:
         client = anthropic.Anthropic(api_key=self.api_key)
 
         values = [f"{v:.3f} {a:.3f}" for v, a in zip(velocity, absorption)]
-        prompt = """You are an expert in Mössbauer spectroscopy. Here is a velocity vs. absorption spectrum from a ⁵⁷Fe sample. Provide a brief interpretation of the number and nature of iron sites based on the shape and number of peaks.
+        data_block = "\n".join(values[:100]) + ("\n..." if len(values) > 100 else "")
+
+        prompt = f"""
+You are an expert in Mössbauer spectroscopy. Here is a velocity vs. absorption spectrum from a ⁵⁷Fe sample.
+Analyze the spectrum in terms of:
+1. Number and nature of iron sites
+2. Expected oxidation/spin states and coordination based on isomer shift (δ) and quadrupole splitting (ΔE)
+3. Symmetry of sites and possible magnetic features
+4. Degree of distortion and identification of possible mineral or compound classes
+5. Fit quality expectations for the {fit_model} model with {n_sites} Mössbauer site(s)
 
 Data (velocity [mm/s] absorption):
-""" + "\n".join(values[:60]) + ("\n..." if len(values) > 60 else "")
+{data_block}
+"""
 
         message = client.messages.create(
             model=self.model_name,
@@ -175,7 +185,7 @@ def main():
                         api_key=st.session_state.api_key,
                         model_name=st.session_state.claude_model
                     )
-                    summary = interpreter.generate_summary(fitter.velocity, fitter.absorption)
+                    summary = interpreter.generate_summary(fitter.velocity, fitter.absorption, selected_fit_model.value.title(), n_sites)
                     model_label = "Sonnet" if "sonnet" in st.session_state.claude_model else "Opus"
                     st.subheader(f"🧠 Claude 4 {model_label} Interpretation")
                     st.markdown(f"**Fitting Model:** {selected_fit_model.value.title()}  |  **Number of Sites:** {n_sites}")
