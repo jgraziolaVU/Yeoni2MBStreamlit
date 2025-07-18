@@ -107,19 +107,22 @@ class MossbauerFitter:
             if self.model_type == FitModel.LORENTZIAN:
                 m = LorentzianModel(prefix=prefix)
                 width_param = f"{prefix}width"
+                m.set_param_hint("width", min=0.1, max=2)
             elif self.model_type == FitModel.VOIGT:
                 m = VoigtModel(prefix=prefix)
                 width_param = f"{prefix}sigma"
+                m.set_param_hint("sigma", min=0.1, max=2)
             else:
                 m = PseudoVoigtModel(prefix=prefix)
                 width_param = f"{prefix}sigma"
+                m.set_param_hint("sigma", min=0.1, max=2)
 
             model = m if model is None else model + m
 
             m_params = m.make_params()
             m_params[f"{prefix}center"].set(value=centers[i], min=centers[i]-1, max=centers[i]+1)
             m_params[f"{prefix}amplitude"].set(value=0.5, min=0)
-            m_params[width_param].set(value=0.5, min=0.1, max=2)
+            m_params[width_param].set(value=0.5)
             params.update(m_params)
 
         self.result = model.fit(self.absorption, params, x=self.velocity)
