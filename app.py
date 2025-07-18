@@ -57,11 +57,12 @@ class MossbauerFitter:
         try:
             if uploaded_file.name.endswith('.xlsx'):
                 df = pd.read_excel(uploaded_file).dropna(how='all')
+                df.columns = df.columns.str.strip()  # Strip whitespace from column names
                 if "Main" in df.columns and "Unnamed: 1" in df.columns:
                     df = df[["Main", "Unnamed: 1"]].dropna()
                     df.columns = ["velocity", "absorption"]
                 else:
-                    return False, "Excel file must contain 'Main' and 'Unnamed: 1' columns."
+                    return False, "Excel file must contain columns labeled 'Main' and 'Unnamed: 1' (or similar)."
             elif uploaded_file.name.endswith(('.txt', '.csv')):
                 content = uploaded_file.read().decode('utf-8')
                 uploaded_file.seek(0)
@@ -95,6 +96,13 @@ class MossbauerFitter:
             return False, f"Error loading data: {str(e)}"
 
 def main():
+    st.sidebar.subheader("🔑 Anthropic API Key")
+    api_key_input = st.sidebar.text_input("Enter Claude API key", type="password", value=st.session_state.api_key or "")
+    if api_key_input and api_key_input != st.session_state.api_key:
+        st.session_state.api_key = api_key_input
+        st.sidebar.success("API key set!")
+
+
     st.title("⚛️ Mössbauer Spectrum Analyzer")
     st.markdown("AI-powered analysis of ⁵⁷Fe Mössbauer spectroscopy data")
 
