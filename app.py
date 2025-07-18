@@ -283,8 +283,6 @@ class MossbauerFitter:
     def fit(self, n_sites: int) -> Any:
         """Fit the spectrum with specified number of sites"""
         try:
-            params = Parameters()
-            
             # Use peak detection for better initial guesses
             peaks = PeakDetector.detect_peaks(self.velocity, self.absorption)
             
@@ -301,65 +299,58 @@ class MossbauerFitter:
             for i in range(n_sites):
                 prefix = f"p{i}_"
                 
-                # Create model based on type with proper parameter handling
+                # Create model based on type
                 if self.model_type == FitModel.LORENTZIAN:
                     m = LorentzianModel(prefix=prefix)
-                    # Make parameters first
-                    m_params = m.make_params(
-                        center=centers[i],
-                        amplitude=0.3,
-                        width=0.5
-                    )
-                    # Set bounds
-                    m_params[f"{prefix}center"].set(min=self.velocity.min(), max=self.velocity.max())
-                    m_params[f"{prefix}amplitude"].set(min=0.01, max=2.0)
-                    m_params[f"{prefix}width"].set(min=0.1, max=2.0)
-                    
                 elif self.model_type == FitModel.VOIGT:
                     m = VoigtModel(prefix=prefix)
-                    # Make parameters first
-                    m_params = m.make_params(
-                        center=centers[i],
-                        amplitude=0.3,
-                        sigma=0.3,  # Gaussian component
-                        gamma=0.3   # Lorentzian component
-                    )
-                    # Set bounds
-                    m_params[f"{prefix}center"].set(min=self.velocity.min(), max=self.velocity.max())
-                    m_params[f"{prefix}amplitude"].set(min=0.01, max=2.0)
-                    m_params[f"{prefix}sigma"].set(min=0.05, max=1.5)
-                    m_params[f"{prefix}gamma"].set(min=0.05, max=1.5)
-                    
                 else:  # PSEUDO_VOIGT
                     m = PseudoVoigtModel(prefix=prefix)
-                    # Make parameters first
-                    m_params = m.make_params(
-                        center=centers[i],
-                        amplitude=0.3,
-                        sigma=0.4,
-                        fraction=0.5  # Mix of Gaussian (0) and Lorentzian (1)
-                    )
-                    # Set bounds
-                    m_params[f"{prefix}center"].set(min=self.velocity.min(), max=self.velocity.max())
-                    m_params[f"{prefix}amplitude"].set(min=0.01, max=2.0)
-                    m_params[f"{prefix}sigma"].set(min=0.1, max=2.0)
-                    m_params[f"{prefix}fraction"].set(min=0.0, max=1.0)
 
                 model = m if model is None else model + m
-                params.update(m_params)
 
-            # Perform fit with different methods for different models
-            if self.model_type == FitModel.LORENTZIAN:
-                # Lorentzian fits well with leastsq
-                self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
-            elif self.model_type == FitModel.VOIGT:
-                # Voigt profiles benefit from more robust fitting
-                self.result = model.fit(self.absorption, params, x=self.velocity, method='least_squares')
-            else:  # PSEUDO_VOIGT
-                # Pseudo-Voigt can use differential evolution for global optimization
-                self.result = model.fit(self.absorption, params, x=self.velocity, method='differential_evolution', seed=42)
+            # Create parameters for the entire composite model
+            params = model.make_params()
             
-            # Calculate individual components with proper parameter extraction
+            # Set parameter values and bounds for each site
+            for i in range(n_sites):
+                prefix = f"p{i}_"
+                
+                # Set center parameter
+                params[f"{prefix}center"].set(value=centers[i], 
+                                             min=self.velocity.min(), 
+                                             max=self.velocity.max())
+                
+                # Set amplitude parameter
+                params[f"{prefix}amplitude"].set(value=0.3, min=0.01, max=2.0)
+                
+                # Set width/shape parameters based on model type
+                if self.model_type == FitModel.LORENTZIAN:
+                    params[f"{prefix}width"].set(value=0.5, min=0.1, max=2.0)
+                    
+                elif self.model_type == FitModel.VOIGT:
+                    params[f"{prefix}sigma"].set(value=0.3, min=0.05, max=1.5)
+                    params[f"{prefix}gamma"].set(value=0.3, min=0.05, max=1.5)
+                    
+                else:  # PSEUDO_VOIGT
+                    params[f"{prefix}sigma"].set(value=0.4, min=0.1, max=2.0)
+                    params[f"{prefix}fraction"].set(value=0.5, min=0.0, max=1.0)
+
+            # Perform fit with appropriate method
+            try:
+                if self.model_type == FitModel.LORENTZIAN:
+                    self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
+                elif self.model_type == FitModel.VOIGT:
+                    self.result = model.fit(self.absorption, params, x=self.velocity, method='least_squares')
+                else:  # PSEUDO_VOIGT
+                    self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
+                    
+            except Exception as fit_error:
+                # Try with a more robust method if the preferred one fails
+                st.warning(f"Primary fitting method failed, trying alternative method: {str(fit_error)}")
+                self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
+            
+            # Calculate individual components
             for i in range(n_sites):
                 prefix = f"p{i}_"
                 
@@ -379,9 +370,14 @@ class MossbauerFitter:
                         component_params[clean_name] = param_value.value
                 
                 # Generate component curve
-                self.individual_components[f"Site {i+1}"] = component_model.eval(
-                    x=self.velocity, **component_params
-                )
+                try:
+                    self.individual_components[f"Site {i+1}"] = component_model.eval(
+                        x=self.velocity, **component_params
+                    )
+                except Exception as comp_error:
+                    st.warning(f"Could not generate component {i+1}: {str(comp_error)}")
+                    # Create a dummy component to avoid crashes
+                    self.individual_components[f"Site {i+1}"] = np.zeros_like(self.velocity)
             
             # Calculate statistics
             self._calculate_statistics()
