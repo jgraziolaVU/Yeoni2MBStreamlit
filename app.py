@@ -312,43 +312,48 @@ class MossbauerFitter:
             # Create parameters for the entire composite model
             params = model.make_params()
             
+            # Debug: Print available parameters
+            st.write(f"Debug: Available parameters for {self.model_type.value}: {list(params.keys())}")
+            
             # Set parameter values and bounds for each site
             for i in range(n_sites):
                 prefix = f"p{i}_"
                 
                 # Set center parameter
-                params[f"{prefix}center"].set(value=centers[i], 
-                                             min=self.velocity.min(), 
-                                             max=self.velocity.max())
+                if f"{prefix}center" in params:
+                    params[f"{prefix}center"].set(value=centers[i], 
+                                                 min=self.velocity.min(), 
+                                                 max=self.velocity.max())
                 
                 # Set amplitude parameter
-                params[f"{prefix}amplitude"].set(value=0.3, min=0.01, max=2.0)
+                if f"{prefix}amplitude" in params:
+                    params[f"{prefix}amplitude"].set(value=0.3, min=0.01, max=2.0)
                 
                 # Set width/shape parameters based on model type
                 if self.model_type == FitModel.LORENTZIAN:
-                    params[f"{prefix}width"].set(value=0.5, min=0.1, max=2.0)
-                    
+                    if f"{prefix}width" in params:
+                        params[f"{prefix}width"].set(value=0.5, min=0.1, max=2.0)
+                    else:
+                        st.error(f"Parameter {prefix}width not found in Lorentzian model")
+                        return None
+                        
                 elif self.model_type == FitModel.VOIGT:
-                    params[f"{prefix}sigma"].set(value=0.3, min=0.05, max=1.5)
-                    params[f"{prefix}gamma"].set(value=0.3, min=0.05, max=1.5)
+                    if f"{prefix}sigma" in params:
+                        params[f"{prefix}sigma"].set(value=0.3, min=0.05, max=1.5)
+                    if f"{prefix}gamma" in params:
+                        params[f"{prefix}gamma"].set(value=0.3, min=0.05, max=1.5)
                     
                 else:  # PSEUDO_VOIGT
-                    params[f"{prefix}sigma"].set(value=0.4, min=0.1, max=2.0)
-                    params[f"{prefix}fraction"].set(value=0.5, min=0.0, max=1.0)
+                    if f"{prefix}sigma" in params:
+                        params[f"{prefix}sigma"].set(value=0.4, min=0.1, max=2.0)
+                    if f"{prefix}fraction" in params:
+                        params[f"{prefix}fraction"].set(value=0.5, min=0.0, max=1.0)
 
-            # Perform fit with appropriate method
-            try:
-                if self.model_type == FitModel.LORENTZIAN:
-                    self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
-                elif self.model_type == FitModel.VOIGT:
-                    self.result = model.fit(self.absorption, params, x=self.velocity, method='least_squares')
-                else:  # PSEUDO_VOIGT
-                    self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
-                    
-            except Exception as fit_error:
-                # Try with a more robust method if the preferred one fails
-                st.warning(f"Primary fitting method failed, trying alternative method: {str(fit_error)}")
-                self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
+            # Perform fit with robust error handling
+            self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
+            
+            # Debug: Print fit result parameters
+            st.write(f"Debug: Fit result parameters: {list(self.result.params.keys())}")
             
             # Calculate individual components
             for i in range(n_sites):
@@ -385,6 +390,10 @@ class MossbauerFitter:
             return self.result
             
         except Exception as e:
+            st.error(f"Detailed error in fitting: {str(e)}")
+            st.error(f"Error type: {type(e).__name__}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
             raise Exception(f"Fitting failed: {str(e)}")
 
     def _calculate_statistics(self):
