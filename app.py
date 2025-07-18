@@ -102,24 +102,25 @@ class MossbauerFitter:
         centers, _ = find_peaks(-self.absorption, distance=len(self.velocity)//(n_sites+1))
         centers = np.interp(np.linspace(0, len(self.velocity)-1, n_sites), np.arange(len(self.velocity)), self.velocity)
 
-        models = []
         model = None
         for i in range(n_sites):
             prefix = f"p{i}_"
             if self.model_type == FitModel.LORENTZIAN:
                 m = LorentzianModel(prefix=prefix)
+                width_param = f"{prefix}width"
             elif self.model_type == FitModel.VOIGT:
                 m = VoigtModel(prefix=prefix)
+                width_param = f"{prefix}sigma"
             else:
                 m = PseudoVoigtModel(prefix=prefix)
-
-            models.append(m)
-            model = m if model is None else model + m
+                width_param = f"{prefix}sigma"
 
             params.update(m.make_params())
             params[f"{prefix}center"].set(value=centers[i], min=centers[i]-1, max=centers[i]+1)
             params[f"{prefix}amplitude"].set(value=0.5, min=0)
-            params[f"{prefix}sigma" if 'voigt' in self.model_type.value else f"{prefix}width"].set(value=0.5, min=0.1, max=2)
+            params[width_param].set(value=0.5, min=0.1, max=2)
+
+            model = m if model is None else model + m
 
         self.result = model.fit(self.absorption, params, x=self.velocity)
         return self.result
