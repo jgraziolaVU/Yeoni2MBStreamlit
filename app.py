@@ -272,22 +272,26 @@ class MossbauerFitter:
         # Handle different data formats
         if self.absorption.max() <= 0:
             # Data is in differential absorption format (all negative values)
-            # Simply invert the sign to make it positive for fitting
-            st.info("📊 Data detected in differential absorption format, converting to positive values")
-            self.absorption = -self.absorption
+            # For fitting, we need to work with the absolute values but preserve the original orientation
+            st.info("📊 Data detected in differential absorption format")
+            # Store original for plotting, but use absolute values for fitting
+            self.original_absorption = self.absorption.copy()
+            self.absorption = np.abs(self.absorption)
+            self.is_inverted_format = True
             
         elif self.absorption.max() > 10:
             # Data is in percentage format
             st.info("📊 Data detected in percentage format, converting to fractional")
             self.absorption = self.absorption / 100.0
+            self.is_inverted_format = False
             
         elif self.absorption.min() < 0:
             # Data has some negative values, shift to positive
             st.info("📊 Shifting data to positive baseline")
             self.absorption = self.absorption - self.absorption.min()
-        
-        # That's it! Don't over-normalize or invert the data
-        # The fitting algorithm expects absorption peaks (minima) in transmission data
+            self.is_inverted_format = False
+        else:
+            self.is_inverted_format = False
 
     def fit(self, n_sites: int) -> Any:
         """Fit the spectrum with specified number of sites"""
@@ -593,11 +597,24 @@ def create_plots(fitter: MossbauerFitter) -> go.Figure:
         row_heights=[0.7, 0.3]
     )
     
+    # Determine if we need to invert the display
+    display_absorption = fitter.absorption
+    display_fitted = fitter.result.best_fit if fitter.result else None
+    display_residuals = fitter.result.residual if fitter.result else None
+    
+    # If original data was inverted format, flip back for display
+    if hasattr(fitter, 'is_inverted_format') and fitter.is_inverted_format:
+        display_absorption = -fitter.absorption
+        if display_fitted is not None:
+            display_fitted = -display_fitted
+        if display_residuals is not None:
+            display_residuals = -display_residuals
+    
     # Main spectrum plot
     fig.add_trace(
         go.Scatter(
             x=fitter.velocity, 
-            y=fitter.absorption,
+            y=display_absorption,
             mode='lines+markers',
             name='Experimental',
             line=dict(color='blue', width=2),
@@ -611,7 +628,7 @@ def create_plots(fitter: MossbauerFitter) -> go.Figure:
         fig.add_trace(
             go.Scatter(
                 x=fitter.velocity,
-                y=fitter.result.best_fit,
+                y=display_fitted,
                 mode='lines',
                 name='Fitted',
                 line=dict(color='red', width=2, dash='dash')
@@ -622,10 +639,14 @@ def create_plots(fitter: MossbauerFitter) -> go.Figure:
         # Individual components
         colors = ['green', 'orange', 'purple', 'brown', 'pink', 'gray']
         for i, (site_name, component) in enumerate(fitter.individual_components.items()):
+            display_component = component
+            if hasattr(fitter, 'is_inverted_format') and fitter.is_inverted_format:
+                display_component = -component
+                
             fig.add_trace(
                 go.Scatter(
                     x=fitter.velocity,
-                    y=component,
+                    y=display_component,
                     mode='lines',
                     name=site_name,
                     line=dict(color=colors[i % len(colors)], width=1, dash='dot'),
@@ -638,7 +659,7 @@ def create_plots(fitter: MossbauerFitter) -> go.Figure:
         fig.add_trace(
             go.Scatter(
                 x=fitter.velocity,
-                y=fitter.result.residual,
+                y=display_residuals,
                 mode='lines+markers',
                 name='Residuals',
                 line=dict(color='black', width=1),
