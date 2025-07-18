@@ -269,12 +269,11 @@ class MossbauerFitter:
         self.velocity = self.velocity[sort_idx]
         self.absorption = self.absorption[sort_idx]
         
-        # Determine data format and apply appropriate preprocessing
+        # Handle different data formats
         if self.absorption.max() <= 0:
             # Data is in differential absorption format (all negative values)
-            # Keep the original scale but invert sign for fitting
-            st.info("📊 Data detected in differential absorption format (negative values)")
-            # Invert the sign to make it suitable for fitting (peaks become positive)
+            # Simply invert the sign to make it positive for fitting
+            st.info("📊 Data detected in differential absorption format, converting to positive values")
             self.absorption = -self.absorption
             
         elif self.absorption.max() > 10:
@@ -283,26 +282,12 @@ class MossbauerFitter:
             self.absorption = self.absorption / 100.0
             
         elif self.absorption.min() < 0:
-            # Data has negative values, shift to positive
-            st.info("📊 Data has negative values, shifting to positive baseline")
+            # Data has some negative values, shift to positive
+            st.info("📊 Shifting data to positive baseline")
             self.absorption = self.absorption - self.absorption.min()
-            
-        # Ensure data is in proper transmission format for fitting
-        if self.absorption.max() > 1:
-            # Normalize to 0-1 range
-            self.absorption = self.absorption / self.absorption.max()
         
-        # Final check - ensure we have absorption peaks (minima) for Mössbauer fitting
-        # If the data looks inverted (maxima instead of minima), flip it
-        center_idx = len(self.absorption) // 2
-        center_region = self.absorption[center_idx-10:center_idx+10]
-        edge_region = np.concatenate([self.absorption[:20], self.absorption[-20:]])
-        
-        if np.mean(center_region) > np.mean(edge_region):
-            # Center is higher than edges, data might be inverted
-            # This is common when data represents transmission instead of absorption
-            st.info("📊 Data appears to be in transmission format, converting to absorption")
-            self.absorption = 1 - self.absorption + self.absorption.min()
+        # That's it! Don't over-normalize or invert the data
+        # The fitting algorithm expects absorption peaks (minima) in transmission data
 
     def fit(self, n_sites: int) -> Any:
         """Fit the spectrum with specified number of sites"""
