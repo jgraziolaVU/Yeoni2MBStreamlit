@@ -99,7 +99,6 @@ class MossbauerFitter:
 
     def fit(self, n_sites: int):
         params = Parameters()
-        centers, _ = find_peaks(-self.absorption, distance=len(self.velocity)//(n_sites+1))
         centers = np.interp(np.linspace(0, len(self.velocity)-1, n_sites), np.arange(len(self.velocity)), self.velocity)
 
         model = None
@@ -115,12 +114,13 @@ class MossbauerFitter:
                 m = PseudoVoigtModel(prefix=prefix)
                 width_param = f"{prefix}sigma"
 
-            params.update(m.make_params())
-            params[f"{prefix}center"].set(value=centers[i], min=centers[i]-1, max=centers[i]+1)
-            params[f"{prefix}amplitude"].set(value=0.5, min=0)
-            params[width_param].set(value=0.5, min=0.1, max=2)
-
             model = m if model is None else model + m
+
+            m_params = m.make_params()
+            m_params[f"{prefix}center"].set(value=centers[i], min=centers[i]-1, max=centers[i]+1)
+            m_params[f"{prefix}amplitude"].set(value=0.5, min=0)
+            m_params[width_param].set(value=0.5, min=0.1, max=2)
+            params.update(m_params)
 
         self.result = model.fit(self.absorption, params, x=self.velocity)
         return self.result
