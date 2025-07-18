@@ -11,7 +11,44 @@ from datetime import datetime
 import anthropic
 from lmfit.models import LorentzianModel, VoigtModel, PseudoVoigtModel
 from lmfit import Parameters
-from scipy.signal import find_peaks
+
+def find_peaks(
+    data: np.ndarray, height: float = 0.0, distance: int = 1
+) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
+    """Simple peak finding replacement for :func:`scipy.signal.find_peaks`.
+
+    Parameters
+    ----------
+    data : ndarray
+        1-D array in which to find local maxima.
+    height : float, optional
+        Minimum peak height.
+    distance : int, optional
+        Minimum number of samples between adjacent peaks.
+
+    Returns
+    -------
+    peaks : ndarray
+        Indices of the peaks in ``data``.
+    properties : dict
+        Dictionary containing the ``peak_heights`` array.
+    """
+    data = np.asarray(data)
+    if len(data) < 3:
+        return np.array([], dtype=int), {"peak_heights": np.array([])}
+
+    peaks: List[int] = []
+    for i in range(1, len(data) - 1):
+        if data[i] > data[i - 1] and data[i] > data[i + 1] and data[i] >= height:
+            if peaks and i - peaks[-1] < distance:
+                # Keep the higher of two close peaks
+                if data[i] > data[peaks[-1]]:
+                    peaks[-1] = i
+            else:
+                peaks.append(i)
+
+    peak_indices = np.array(peaks, dtype=int)
+    return peak_indices, {"peak_heights": data[peak_indices] if len(peaks) else np.array([])}
 
 # Page configuration
 st.set_page_config(
@@ -81,8 +118,17 @@ class MossbauerFitter:
         self.absorption = None
         self.result = None
         
-    def load_data(self, uploaded_file) -> Tuple[bool, str]:
-        """Load and validate data from file"""
+    def load_data(self, uploaded_file, apply_baseline_correction: bool = True) -> Tuple[bool, str]:
+        """Load and validate data from file
+
+        Parameters
+        ----------
+        uploaded_file: Uploaded file-like object
+            The spectrum data file provided by the user.
+        apply_baseline_correction: bool, optional
+            Whether to normalize the absorption data using a simple baseline
+            correction. Defaults to ``True``.
+        """
         try:
             # Read file based on type
             if uploaded_file.name.endswith('.xlsx'):
@@ -117,10 +163,11 @@ class MossbauerFitter:
             if self.absorption.max() > 10:
                 self.absorption = self.absorption / 100.0
             
-            # Apply baseline correction if needed
-            if self.absorption.min() < 0.9:
+            # Apply baseline correction if requested
+            if apply_baseline_correction and self.absorption.min() < 0.9:
                 baseline = np.percentile(self.absorption, 95)
-                self.absorption = self.absorption / baseline
+                if baseline:
+                    self.absorption = self.absorption / baseline
             
             return True, "Data loaded successfully"
             
@@ -521,7 +568,9 @@ def main():
                 fitter = MossbauerFitter(model_type=model_type)
                 
                 # Load data
-                success, message = fitter.load_data(uploaded_file)
+                success, message = fitter.load_data(
+                    uploaded_file, apply_baseline_correction=baseline_correction
+                )
                 
                 if success:
                     st.success(message)
