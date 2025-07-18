@@ -796,9 +796,10 @@ def main():
                 )
                 
                 # Excel export
-                with pd.ExcelWriter(io.BytesIO(), engine='openpyxl') as buffer:
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                     # Parameters sheet
-                    fit_params.to_excel(buffer, sheet_name='Parameters', index=False)
+                    fit_params.to_excel(writer, sheet_name='Parameters', index=False)
                     
                     # Raw data sheet
                     raw_data_df = pd.DataFrame({
@@ -807,21 +808,21 @@ def main():
                         'Fitted': fitter.result.best_fit,
                         'Residuals': fitter.result.residual
                     })
-                    raw_data_df.to_excel(buffer, sheet_name='Data', index=False)
+                    raw_data_df.to_excel(writer, sheet_name='Data', index=False)
                     
                     # Statistics sheet
                     if fitter.statistics:
                         stats_df = pd.DataFrame([asdict(fitter.statistics)])
-                        stats_df.to_excel(buffer, sheet_name='Statistics', index=False)
-                    
-                    buffer.seek(0)
-                    
-                    st.download_button(
-                        label="📥 Download Analysis (Excel)",
-                        data=buffer.getvalue(),
-                        file_name=f"mossbauer_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                        stats_df.to_excel(writer, sheet_name='Statistics', index=False)
+                
+                excel_buffer.seek(0)
+                
+                st.download_button(
+                    label="📥 Download Analysis (Excel)",
+                    data=excel_buffer.getvalue(),
+                    file_name=f"mossbauer_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
                 
                 # Show preview of export data
                 st.markdown("### Export Preview")
