@@ -312,9 +312,6 @@ class MossbauerFitter:
             # Create parameters for the entire composite model
             params = model.make_params()
             
-            # Debug: Print available parameters
-            st.write(f"Debug: Available parameters for {self.model_type.value}: {list(params.keys())}")
-            
             # Set parameter values and bounds for each site
             for i in range(n_sites):
                 prefix = f"p{i}_"
@@ -331,11 +328,9 @@ class MossbauerFitter:
                 
                 # Set width/shape parameters based on model type
                 if self.model_type == FitModel.LORENTZIAN:
-                    if f"{prefix}width" in params:
-                        params[f"{prefix}width"].set(value=0.5, min=0.1, max=2.0)
-                    else:
-                        st.error(f"Parameter {prefix}width not found in Lorentzian model")
-                        return None
+                    # Lorentzian model uses 'sigma' not 'width'
+                    if f"{prefix}sigma" in params:
+                        params[f"{prefix}sigma"].set(value=0.5, min=0.1, max=2.0)
                         
                 elif self.model_type == FitModel.VOIGT:
                     if f"{prefix}sigma" in params:
@@ -351,9 +346,6 @@ class MossbauerFitter:
 
             # Perform fit with robust error handling
             self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
-            
-            # Debug: Print fit result parameters
-            st.write(f"Debug: Fit result parameters: {list(self.result.params.keys())}")
             
             # Calculate individual components
             for i in range(n_sites):
@@ -453,23 +445,25 @@ class MossbauerFitter:
                 amplitude = self.result.params[amp_param].value
                 amplitude_err = self.result.params[amp_param].stderr if self.result.params[amp_param].stderr else 0
                 
-                # Get width parameter (depends on model type)
+                # Get width parameter (all models use sigma in this version)
+                sigma_param = f"{prefix}_sigma"
+                sigma = self.result.params[sigma_param].value
+                sigma_err = self.result.params[sigma_param].stderr if self.result.params[sigma_param].stderr else 0
+                
+                # Model-specific parameter handling
                 if self.model_type == FitModel.LORENTZIAN:
-                    width_param = f"{prefix}_width"
-                    width = self.result.params[width_param].value
-                    width_err = self.result.params[width_param].stderr if self.result.params[width_param].stderr else 0
+                    # For Lorentzian, sigma is the width parameter
+                    width = sigma
+                    width_err = sigma_err
                     width_label = "Width (mm/s)"
                     extra_params = ""
                     
                 elif self.model_type == FitModel.VOIGT:
-                    sigma_param = f"{prefix}_sigma"
                     gamma_param = f"{prefix}_gamma"
-                    sigma = self.result.params[sigma_param].value
                     gamma = self.result.params[gamma_param].value
-                    sigma_err = self.result.params[sigma_param].stderr if self.result.params[sigma_param].stderr else 0
                     gamma_err = self.result.params[gamma_param].stderr if self.result.params[gamma_param].stderr else 0
                     
-                    # For Voigt, calculate FWHM
+                    # For Voigt, calculate FWHM from sigma and gamma
                     fwhm = 3.60131 * sigma + np.sqrt(12.25344 * sigma**2 + gamma**2)
                     width = fwhm
                     width_err = 0  # Complex error propagation, simplified
@@ -477,15 +471,12 @@ class MossbauerFitter:
                     extra_params = f"σ={sigma:.3f}±{sigma_err:.3f}, γ={gamma:.3f}±{gamma_err:.3f}"
                     
                 else:  # PSEUDO_VOIGT
-                    sigma_param = f"{prefix}_sigma"
                     fraction_param = f"{prefix}_fraction"
-                    sigma = self.result.params[sigma_param].value
                     fraction = self.result.params[fraction_param].value
-                    sigma_err = self.result.params[sigma_param].stderr if self.result.params[sigma_param].stderr else 0
                     fraction_err = self.result.params[fraction_param].stderr if self.result.params[fraction_param].stderr else 0
                     
-                    # For Pseudo-Voigt, width depends on fraction
-                    width = sigma * 2  # Approximation
+                    # For Pseudo-Voigt, width is approximately 2*sigma
+                    width = sigma * 2
                     width_err = sigma_err * 2
                     width_label = "Width (mm/s)"
                     extra_params = f"σ={sigma:.3f}±{sigma_err:.3f}, η={fraction:.3f}±{fraction_err:.3f}"
