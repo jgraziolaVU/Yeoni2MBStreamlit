@@ -57,7 +57,7 @@ class MossbauerFitter:
         try:
             if uploaded_file.name.endswith('.xlsx'):
                 df = pd.read_excel(uploaded_file).dropna(how='all')
-                df.columns = df.columns.str.strip()  # Strip whitespace from column names
+                df.columns = df.columns.str.strip()
                 if "Main" in df.columns and "Unnamed: 1" in df.columns:
                     df = df[["Main", "Unnamed: 1"]].dropna()
                     df.columns = ["velocity", "absorption"]
@@ -95,13 +95,34 @@ class MossbauerFitter:
         except Exception as e:
             return False, f"Error loading data: {str(e)}"
 
+class MossbauerInterpreter:
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key
+
+    def generate_summary(self, velocity: np.ndarray, absorption: np.ndarray) -> str:
+        client = anthropic.Anthropic(api_key=self.api_key)
+
+        values = [f"{v:.3f} {a:.3f}" for v, a in zip(velocity, absorption)]
+        prompt = """You are an expert in Mössbauer spectroscopy. Here is a velocity vs. absorption spectrum from a ⁵⁷Fe sample. Provide a brief interpretation of the number and nature of iron sites based on the shape and number of peaks.
+
+Data (velocity [mm/s] absorption):
+""" + "\n".join(values[:60]) + ("\n..." if len(values) > 60 else "")
+
+        message = client.messages.create(
+            model="claude-3-sonnet-20240229",
+            max_tokens=300,
+            temperature=0.3,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        return message.content[0].text.strip()
+
 def main():
     st.sidebar.subheader("🔑 Anthropic API Key")
     api_key_input = st.sidebar.text_input("Enter Claude API key", type="password", value=st.session_state.api_key or "")
     if api_key_input and api_key_input != st.session_state.api_key:
         st.session_state.api_key = api_key_input
         st.sidebar.success("API key set!")
-
 
     st.title("⚛️ Mössbauer Spectrum Analyzer")
 
@@ -120,13 +141,14 @@ def main():
         value=2,
         help="Estimated number of iron environments to fit"
     )
+
     st.markdown("AI-powered analysis of ⁵⁷Fe Mössbauer spectroscopy data")
 
     uploaded_file = st.file_uploader("Upload Mössbauer spectrum file (.xlsx, .csv, .txt)", type=["xlsx", "csv", "txt"])
 
     if uploaded_file is not None:
         with st.spinner("Loading data..."):
-            fitter = MossbauerFitter(model_type=FitModel.LORENTZIAN)
+            fitter = MossbauerFitter(model_type=selected_model)
             success, message = fitter.load_data(uploaded_file)
             if not success:
                 st.error(message)
@@ -134,7 +156,16 @@ def main():
             st.success(message)
 
             st.line_chart(pd.DataFrame({"absorption": fitter.absorption}, index=fitter.velocity))
-            st.info("✅ Data loaded and plotted. Continue integration with fitting logic here.")
+            st.info("✅ Data loaded and plotted.")
+
+            if st.session_state.api_key:
+                with st.spinner("Generating Claude interpretation..."):
+                    interpreter = MossbauerInterpreter(api_key=st.session_state.api_key)
+                    summary = interpreter.generate_summary(fitter.velocity, fitter.absorption)
+                    st.subheader("🧠 Claude Interpretation")
+                    st.info(summary)
+            else:
+                st.warning("Set your Anthropic API key in the sidebar to enable AI interpretation.")
     else:
         st.info("📁 Please upload a file to begin analysis.")
 
