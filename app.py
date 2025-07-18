@@ -98,18 +98,12 @@ class MossbauerFitter:
             return False, f"Error loading data: {str(e)}"
 
     def fit(self, n_sites: int):
-        if self.model_type == FitModel.LORENTZIAN:
-            model = LorentzianModel(prefix='p0_')
-        elif self.model_type == FitModel.VOIGT:
-            model = VoigtModel(prefix='p0_')
-        else:
-            model = PseudoVoigtModel(prefix='p0_')
-
-        params = model.make_params()
+        params = Parameters()
         centers, _ = find_peaks(-self.absorption, distance=len(self.velocity)//(n_sites+1))
         centers = np.interp(np.linspace(0, len(self.velocity)-1, n_sites), np.arange(len(self.velocity)), self.velocity)
 
         models = []
+        model = None
         for i in range(n_sites):
             prefix = f"p{i}_"
             if self.model_type == FitModel.LORENTZIAN:
@@ -120,7 +114,7 @@ class MossbauerFitter:
                 m = PseudoVoigtModel(prefix=prefix)
 
             models.append(m)
-            model += m if i > 0 else 0
+            model = m if model is None else model + m
 
             params.update(m.make_params())
             params[f"{prefix}center"].set(value=centers[i], min=centers[i]-1, max=centers[i]+1)
