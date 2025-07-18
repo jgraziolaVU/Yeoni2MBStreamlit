@@ -301,40 +301,69 @@ class MossbauerFitter:
             for i in range(n_sites):
                 prefix = f"p{i}_"
                 
-                # Create model based on type
+                # Create model based on type with proper parameter handling
                 if self.model_type == FitModel.LORENTZIAN:
                     m = LorentzianModel(prefix=prefix)
-                    width_param = f"{prefix}width"
-                    m.set_param_hint("width", min=0.1, max=2.0)
+                    # Make parameters first
+                    m_params = m.make_params(
+                        center=centers[i],
+                        amplitude=0.3,
+                        width=0.5
+                    )
+                    # Set bounds
+                    m_params[f"{prefix}center"].set(min=self.velocity.min(), max=self.velocity.max())
+                    m_params[f"{prefix}amplitude"].set(min=0.01, max=2.0)
+                    m_params[f"{prefix}width"].set(min=0.1, max=2.0)
+                    
                 elif self.model_type == FitModel.VOIGT:
                     m = VoigtModel(prefix=prefix)
-                    width_param = f"{prefix}sigma"
-                    m.set_param_hint("sigma", min=0.1, max=2.0)
-                    m.set_param_hint(f"{prefix}gamma", min=0.1, max=2.0)
+                    # Make parameters first
+                    m_params = m.make_params(
+                        center=centers[i],
+                        amplitude=0.3,
+                        sigma=0.3,  # Gaussian component
+                        gamma=0.3   # Lorentzian component
+                    )
+                    # Set bounds
+                    m_params[f"{prefix}center"].set(min=self.velocity.min(), max=self.velocity.max())
+                    m_params[f"{prefix}amplitude"].set(min=0.01, max=2.0)
+                    m_params[f"{prefix}sigma"].set(min=0.05, max=1.5)
+                    m_params[f"{prefix}gamma"].set(min=0.05, max=1.5)
+                    
                 else:  # PSEUDO_VOIGT
                     m = PseudoVoigtModel(prefix=prefix)
-                    width_param = f"{prefix}sigma"
-                    m.set_param_hint("sigma", min=0.1, max=2.0)
-                    m.set_param_hint(f"{prefix}fraction", min=0.0, max=1.0)
+                    # Make parameters first
+                    m_params = m.make_params(
+                        center=centers[i],
+                        amplitude=0.3,
+                        sigma=0.4,
+                        fraction=0.5  # Mix of Gaussian (0) and Lorentzian (1)
+                    )
+                    # Set bounds
+                    m_params[f"{prefix}center"].set(min=self.velocity.min(), max=self.velocity.max())
+                    m_params[f"{prefix}amplitude"].set(min=0.01, max=2.0)
+                    m_params[f"{prefix}sigma"].set(min=0.1, max=2.0)
+                    m_params[f"{prefix}fraction"].set(min=0.0, max=1.0)
 
                 model = m if model is None else model + m
-
-                # Set parameter values
-                m_params = m.make_params()
-                m_params[f"{prefix}center"].set(value=centers[i], 
-                                               min=self.velocity.min(), 
-                                               max=self.velocity.max())
-                m_params[f"{prefix}amplitude"].set(value=0.5, min=0.01, max=2.0)
-                m_params[width_param].set(value=0.5, min=0.1, max=2.0)
-                
                 params.update(m_params)
 
-            # Perform fit
-            self.result = model.fit(self.absorption, params, x=self.velocity)
+            # Perform fit with different methods for different models
+            if self.model_type == FitModel.LORENTZIAN:
+                # Lorentzian fits well with leastsq
+                self.result = model.fit(self.absorption, params, x=self.velocity, method='leastsq')
+            elif self.model_type == FitModel.VOIGT:
+                # Voigt profiles benefit from more robust fitting
+                self.result = model.fit(self.absorption, params, x=self.velocity, method='least_squares')
+            else:  # PSEUDO_VOIGT
+                # Pseudo-Voigt can use differential evolution for global optimization
+                self.result = model.fit(self.absorption, params, x=self.velocity, method='differential_evolution', seed=42)
             
-            # Calculate individual components
+            # Calculate individual components with proper parameter extraction
             for i in range(n_sites):
                 prefix = f"p{i}_"
+                
+                # Create individual component model
                 if self.model_type == FitModel.LORENTZIAN:
                     component_model = LorentzianModel(prefix=prefix)
                 elif self.model_type == FitModel.VOIGT:
@@ -342,9 +371,16 @@ class MossbauerFitter:
                 else:
                     component_model = PseudoVoigtModel(prefix=prefix)
                 
-                component_params = {k: v for k, v in self.result.params.items() if k.startswith(prefix)}
+                # Extract parameters for this component
+                component_params = {}
+                for param_name, param_value in self.result.params.items():
+                    if param_name.startswith(prefix):
+                        clean_name = param_name.replace(prefix, '')
+                        component_params[clean_name] = param_value.value
+                
+                # Generate component curve
                 self.individual_components[f"Site {i+1}"] = component_model.eval(
-                    x=self.velocity, **{k.replace(prefix, ''): v.value for k, v in component_params.items()}
+                    x=self.velocity, **component_params
                 )
             
             # Calculate statistics
@@ -407,29 +443,66 @@ class MossbauerFitter:
                 center = param.value
                 center_err = param.stderr if param.stderr else 0
                 
-                # Get amplitude and width
+                # Get amplitude
                 amp_param = f"{prefix}_amplitude"
-                if self.model_type == FitModel.LORENTZIAN:
-                    width_param = f"{prefix}_width"
-                else:
-                    width_param = f"{prefix}_sigma"
-                
                 amplitude = self.result.params[amp_param].value
                 amplitude_err = self.result.params[amp_param].stderr if self.result.params[amp_param].stderr else 0
-                width = self.result.params[width_param].value
-                width_err = self.result.params[width_param].stderr if self.result.params[width_param].stderr else 0
+                
+                # Get width parameter (depends on model type)
+                if self.model_type == FitModel.LORENTZIAN:
+                    width_param = f"{prefix}_width"
+                    width = self.result.params[width_param].value
+                    width_err = self.result.params[width_param].stderr if self.result.params[width_param].stderr else 0
+                    width_label = "Width (mm/s)"
+                    extra_params = ""
+                    
+                elif self.model_type == FitModel.VOIGT:
+                    sigma_param = f"{prefix}_sigma"
+                    gamma_param = f"{prefix}_gamma"
+                    sigma = self.result.params[sigma_param].value
+                    gamma = self.result.params[gamma_param].value
+                    sigma_err = self.result.params[sigma_param].stderr if self.result.params[sigma_param].stderr else 0
+                    gamma_err = self.result.params[gamma_param].stderr if self.result.params[gamma_param].stderr else 0
+                    
+                    # For Voigt, calculate FWHM
+                    fwhm = 3.60131 * sigma + np.sqrt(12.25344 * sigma**2 + gamma**2)
+                    width = fwhm
+                    width_err = 0  # Complex error propagation, simplified
+                    width_label = "FWHM (mm/s)"
+                    extra_params = f"σ={sigma:.3f}±{sigma_err:.3f}, γ={gamma:.3f}±{gamma_err:.3f}"
+                    
+                else:  # PSEUDO_VOIGT
+                    sigma_param = f"{prefix}_sigma"
+                    fraction_param = f"{prefix}_fraction"
+                    sigma = self.result.params[sigma_param].value
+                    fraction = self.result.params[fraction_param].value
+                    sigma_err = self.result.params[sigma_param].stderr if self.result.params[sigma_param].stderr else 0
+                    fraction_err = self.result.params[fraction_param].stderr if self.result.params[fraction_param].stderr else 0
+                    
+                    # For Pseudo-Voigt, width depends on fraction
+                    width = sigma * 2  # Approximation
+                    width_err = sigma_err * 2
+                    width_label = "Width (mm/s)"
+                    extra_params = f"σ={sigma:.3f}±{sigma_err:.3f}, η={fraction:.3f}±{fraction_err:.3f}"
                 
                 # Calculate relative area
                 total_area = sum(self.result.params[p].value for p in self.result.params if p.endswith('_amplitude'))
                 relative_area = (amplitude / total_area) * 100 if total_area > 0 else 0
                 
-                data.append({
+                # Create row data
+                row_data = {
                     'Site': f"Site {site_num}",
                     'Isomer Shift (mm/s)': f"{center:.3f} ± {center_err:.3f}",
-                    'Line Width (mm/s)': f"{width:.3f} ± {width_err:.3f}",
+                    width_label: f"{width:.3f} ± {width_err:.3f}",
                     'Relative Area (%)': f"{relative_area:.1f}",
                     'Amplitude': f"{amplitude:.3f} ± {amplitude_err:.3f}"
-                })
+                }
+                
+                # Add extra parameters for complex models
+                if extra_params:
+                    row_data['Model Parameters'] = extra_params
+                
+                data.append(row_data)
                 site_num += 1
         
         return pd.DataFrame(data)
