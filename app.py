@@ -97,6 +97,39 @@ class MossbauerFitter:
         except Exception as e:
             return False, f"Error loading data: {str(e)}"
 
+    def fit(self, n_sites: int):
+        if self.model_type == FitModel.LORENTZIAN:
+            model = LorentzianModel(prefix='p0_')
+        elif self.model_type == FitModel.VOIGT:
+            model = VoigtModel(prefix='p0_')
+        else:
+            model = PseudoVoigtModel(prefix='p0_')
+
+        params = model.make_params()
+        centers, _ = find_peaks(-self.absorption, distance=len(self.velocity)//(n_sites+1))
+        centers = np.interp(np.linspace(0, len(self.velocity)-1, n_sites), np.arange(len(self.velocity)), self.velocity)
+
+        models = []
+        for i in range(n_sites):
+            prefix = f"p{i}_"
+            if self.model_type == FitModel.LORENTZIAN:
+                m = LorentzianModel(prefix=prefix)
+            elif self.model_type == FitModel.VOIGT:
+                m = VoigtModel(prefix=prefix)
+            else:
+                m = PseudoVoigtModel(prefix=prefix)
+
+            models.append(m)
+            model += m if i > 0 else 0
+
+            params.update(m.make_params())
+            params[f"{prefix}center"].set(value=centers[i], min=centers[i]-1, max=centers[i]+1)
+            params[f"{prefix}amplitude"].set(value=0.5, min=0)
+            params[f"{prefix}sigma" if 'voigt' in self.model_type.value else f"{prefix}width"].set(value=0.5, min=0.1, max=2)
+
+        self.result = model.fit(self.absorption, params, x=self.velocity)
+        return self.result
+
 class MossbauerInterpreter:
     def __init__(self, api_key: Optional[str] = None, model_name: str = "claude-sonnet-4-20250514"):
         self.api_key = api_key
@@ -176,8 +209,14 @@ def main():
                 return
             st.success(message)
 
-            st.line_chart(pd.DataFrame({"absorption": fitter.absorption}, index=fitter.velocity))
-            st.info("✅ Data loaded and plotted.")
+            result = fitter.fit(n_sites)
+
+            # Plot original and fitted data
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=fitter.velocity, y=fitter.absorption, mode='lines', name='Original'))
+            fig.add_trace(go.Scatter(x=fitter.velocity, y=result.best_fit, mode='lines', name='Fitted'))
+            st.plotly_chart(fig, use_container_width=True)
+            st.info("✅ Data loaded and fitted.")
 
             if st.session_state.api_key:
                 with st.spinner("Generating Claude interpretation..."):
