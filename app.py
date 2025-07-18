@@ -28,6 +28,8 @@ if 'results' not in st.session_state:
     st.session_state.results = None
 if 'fit_results' not in st.session_state:
     st.session_state.fit_results = None
+if 'claude_model' not in st.session_state:
+    st.session_state.claude_model = "claude-sonnet-4-20250514"
 
 class FitModel(Enum):
     LORENTZIAN = "lorentzian"
@@ -96,8 +98,9 @@ class MossbauerFitter:
             return False, f"Error loading data: {str(e)}"
 
 class MossbauerInterpreter:
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "claude-sonnet-4-20250514"):
         self.api_key = api_key
+        self.model_name = model_name
 
     def generate_summary(self, velocity: np.ndarray, absorption: np.ndarray) -> str:
         client = anthropic.Anthropic(api_key=self.api_key)
@@ -109,7 +112,7 @@ Data (velocity [mm/s] absorption):
 """ + "\n".join(values[:60]) + ("\n..." if len(values) > 60 else "")
 
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=self.model_name,
             max_tokens=300,
             temperature=0.3,
             messages=[{"role": "user", "content": prompt}]
@@ -124,10 +127,18 @@ def main():
         st.session_state.api_key = api_key_input
         st.sidebar.success("API key set!")
 
+    st.sidebar.subheader("🧠 Claude Model")
+    selected_model = st.sidebar.selectbox(
+        "Choose Claude model:",
+        options=["claude-sonnet-4-20250514", "claude-opus-4-20250514"],
+        index=0
+    )
+    st.session_state.claude_model = selected_model
+
     st.title("⚛️ Mössbauer Spectrum Analyzer")
 
     st.sidebar.subheader("⚙️ Fitting Options")
-    selected_model = st.sidebar.selectbox(
+    selected_fit_model = st.sidebar.selectbox(
         "Fitting model:",
         options=list(FitModel),
         format_func=lambda x: x.value.title(),
@@ -148,7 +159,7 @@ def main():
 
     if uploaded_file is not None:
         with st.spinner("Loading data..."):
-            fitter = MossbauerFitter(model_type=selected_model)
+            fitter = MossbauerFitter(model_type=selected_fit_model)
             success, message = fitter.load_data(uploaded_file)
             if not success:
                 st.error(message)
@@ -160,9 +171,13 @@ def main():
 
             if st.session_state.api_key:
                 with st.spinner("Generating Claude interpretation..."):
-                    interpreter = MossbauerInterpreter(api_key=st.session_state.api_key)
+                    interpreter = MossbauerInterpreter(
+                        api_key=st.session_state.api_key,
+                        model_name=st.session_state.claude_model
+                    )
                     summary = interpreter.generate_summary(fitter.velocity, fitter.absorption)
                     st.subheader("🧠 Claude Interpretation")
+                    st.markdown(f"**Fitting Model:** {selected_fit_model.value.title()}  |  **Number of Sites:** {n_sites}")
                     st.info(summary)
             else:
                 st.warning("Set your Anthropic API key in the sidebar to enable AI interpretation.")
