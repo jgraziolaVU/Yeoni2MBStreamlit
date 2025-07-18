@@ -176,7 +176,8 @@ def main():
                         model_name=st.session_state.claude_model
                     )
                     summary = interpreter.generate_summary(fitter.velocity, fitter.absorption)
-                    st.subheader("🧠 Claude Interpretation")
+                    model_label = "Sonnet" if "sonnet" in st.session_state.claude_model else "Opus"
+                    st.subheader(f"🧠 Claude 4 {model_label} Interpretation")
                     st.markdown(f"**Fitting Model:** {selected_fit_model.value.title()}  |  **Number of Sites:** {n_sites}")
                     st.info(summary)
             else:
