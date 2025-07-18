@@ -104,6 +104,22 @@ def main():
 
 
     st.title("⚛️ Mössbauer Spectrum Analyzer")
+
+    st.sidebar.subheader("⚙️ Fitting Options")
+    selected_model = st.sidebar.selectbox(
+        "Fitting model:",
+        options=list(FitModel),
+        format_func=lambda x: x.value.title(),
+        index=0
+    )
+
+    n_sites = st.sidebar.number_input(
+        "Number of Mössbauer sites:",
+        min_value=1,
+        max_value=6,
+        value=2,
+        help="Estimated number of iron environments to fit"
+    )
     st.markdown("AI-powered analysis of ⁵⁷Fe Mössbauer spectroscopy data")
 
     uploaded_file = st.file_uploader("Upload Mössbauer spectrum file (.xlsx, .csv, .txt)", type=["xlsx", "csv", "txt"])
