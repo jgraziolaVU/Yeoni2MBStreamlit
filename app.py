@@ -109,7 +109,7 @@ Data (velocity [mm/s] absorption):
 """ + "\n".join(values[:60]) + ("\n..." if len(values) > 60 else "")
 
         message = client.messages.create(
-            model="claude-3-sonnet-20240229",
+            model="claude-sonnet-4-20250514",
             max_tokens=300,
             temperature=0.3,
             messages=[{"role": "user", "content": prompt}]
