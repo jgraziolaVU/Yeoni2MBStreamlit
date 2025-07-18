@@ -113,7 +113,7 @@ Data (velocity [mm/s] absorption):
 
         message = client.messages.create(
             model=self.model_name,
-            max_tokens=300,
+            max_tokens=4096,
             temperature=0.3,
             messages=[{"role": "user", "content": prompt}]
         )
